@@ -10,10 +10,10 @@ from orbit.py_linac.lattice import BaseLinacNode
 
 class BTF_Screenclass(BaseLinacNode):
     node_type = "BTF_Screen"
-    parameter_list = ['speed', 'position', 'axis', 'axis_polarity', 'interaction_start']
+    parameter_list = ['position', 'axis', 'axis_polarity', 'interaction_start']
 
     def __init__(self, child_name: str, screen_axis=None, screen_polarity=None, interaction=None):
-        parameters = {'speed': 0.0, 'position': -0.07, 'axis': screen_axis, 'axis_polarity': screen_polarity,
+        parameters = {'position': -0.07, 'axis': screen_axis, 'axis_polarity': screen_polarity,
                       'interaction_start': interaction}
         BaseLinacNode.__init__(self, child_name)
         for key, value in parameters.items():
@@ -87,9 +87,6 @@ class BTF_Screenclass(BaseLinacNode):
         if value == 1:
             bunch.compress()
 
-    def getSpeed(self):
-        return self.getParam('speed')
-
     def getPosition(self):
         return self.getParam('position')
 
@@ -105,11 +102,11 @@ class BTF_Screenclass(BaseLinacNode):
 
 class BTF_Slitclass(BaseLinacNode):
     node_type = "BTF_Slit"
-    parameter_list = ['speed', 'position', 'axis', 'axis_polarity', 'interaction_start', 'edge_to_slit', 'slit_width']
+    parameter_list = ['position', 'axis', 'axis_polarity', 'interaction_start', 'edge_to_slit', 'slit_width']
 
     def __init__(self, child_name: str, slit_axis=None, slit_polarity=None, interaction=None, edge_to_slit=None,
                  slit_width=None):
-        parameters = {'speed': 0.0, 'position': -0.07, 'axis': slit_axis, 'axis_polarity': slit_polarity,
+        parameters = {'position': -0.07, 'axis': slit_axis, 'axis_polarity': slit_polarity,
                       'interaction_start': interaction, 'edge_to_slit': edge_to_slit, 'slit_width': slit_width}
         BaseLinacNode.__init__(self, child_name)
         for key, value in parameters.items():
@@ -203,9 +200,6 @@ class BTF_Slitclass(BaseLinacNode):
 
         if value == 1:
             bunch.compress()
-
-    def getSpeed(self):
-        return self.getParam('speed')
 
     def getPosition(self):
         return self.getParam('position')
