@@ -44,6 +44,9 @@ class BTF_Actuator(Device):
         # Changes the units from meters to millimeters for associated PVs
         self.milli_units = LinearTInv(scaler=1e3)
 
+        # Creates flat noise
+        pos_noise = AbsNoise(noise=1e-3)
+
         # Sets initial values for parameters
         if park_location is not None:
             self.park_location = park_location
@@ -77,13 +80,13 @@ class BTF_Actuator(Device):
 
         # Registers the device's PVs with the server
         self.register_setting(BTF_Actuator.position_set_pv, default = initial_position, transform = self.milli_units)
-        self.register_readback(BTF_Actuator.position_sync_readback_pv, BTF_Actuator.position_set_pv, transform = self.milli_units)
-        self.register_readback(BTF_Actuator.position_enc_readback_pv, BTF_Actuator.position_set_pv, transform = self.milli_units)
+        self.register_readback(BTF_Actuator.position_sync_readback_pv, BTF_Actuator.position_set_pv, transform = self.milli_units, noise=pos_noise)
+        self.register_readback(BTF_Actuator.position_enc_readback_pv, BTF_Actuator.position_set_pv, transform = self.milli_units, noise=pos_noise)
 
         self.register_setting(BTF_Actuator.velocity_set_pv, default = initial_velocity, transform = self.milli_units)
 
-        self.register_setting(BTF_Actuator.command_set_pv, default = initial_command)
-        self.register_readback(BTF_Actuator.status_readback_pv, BTF_Actuator.command_set_pv)
+        self.register_setting(BTF_Actuator.command_set_pv, default = initial_command, definition={'type': 'int'})
+        self.register_readback(BTF_Actuator.status_readback_pv, BTF_Actuator.command_set_pv, definition={'type': 'int'})
 
     def get_actuator_position(self):
         # Initialize last position and time
