@@ -292,12 +292,12 @@ def build_btf(**kwargs):
         ele_name = device_dict["PyORBIT_Name"]
         axis = device_dict["Axis"]
         axis_polarity = device_dict["Axis_Polarity"]
-        speed = device_dict["Standard_Speed"]
-        limit = device_dict["Actuator_Limit"]
+        velocity = device_dict["Standard_Velocity"]
+        pos_limit = device_dict["Actuator_Limit"]
         if ele_name in element_list:
             slit_child = BTF_Slitclass(ele_name, slit_axis=axis, slit_polarity=axis_polarity)
             model.add_child_node(ele_name, slit_child)
-            slit_device = BTF_Actuator(name, ele_name, speed=speed, limit=limit)
+            slit_device = BTF_Actuator(name, ele_name, velocity=velocity, pos_limit=pos_limit)
             beam_line.add_device(slit_device)
 
     delay = kwargs['ca_proc']

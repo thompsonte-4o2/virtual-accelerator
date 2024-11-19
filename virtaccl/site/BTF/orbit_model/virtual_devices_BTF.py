@@ -26,156 +26,156 @@ from virtaccl.beam_line import Device, AbsNoise, LinearT, PhaseT, PhaseTInv, Lin
 class BTF_Actuator(Device):
     # EPICS PV names
     position_set_pv = 'DestinationSet' #[mm]
-    position_readback_pv = 'PositionSync' # [mm]
-    speed_set_pv = 'Velocity_Set' # [mm/s]
-    speed_readback_pv = 'Velocity' # [mm/s]
-    state_set_pv = 'Command'
+    position_sync_readback_pv = 'PositionSync' #[mm]
+    position_enc_readback_pv = 'PositionEnc' #[mm]
+
+    velocity_set_pv = 'VelocitySet' #[mm/s]
+
+    command_set_pv = 'Command'
+    status_readback_pv = 'Status'
 
     # Device keys
-    position_key = 'position' # [m]
-    speed_key = 'speed' # [m/s]
+    position_key = 'position' #[m]
 
-    def __init__(self, name: str, model_name: str, park_location = None, speed = None, limit = None):
+    def __init__(self, name: str, model_name: str, park_location = None, velocity = None, velocity_limit = None, pos_limit = None):
         self.model_name = model_name
         super().__init__(name, self.model_name)
 
-        # Changes the units from meters to millimeters for associated PVs.
+        # Changes the units from meters to millimeters for associated PVs
         self.milli_units = LinearTInv(scaler=1e3)
 
-        # Sets initial values for parameters.
+        # Sets initial values for parameters
         if park_location is not None:
             self.park_location = park_location
         else:
             self.park_location = -0.07
 
-        if speed is not None:
-            self.speed = speed
+        if velocity is not None:
+            self.velocity = velocity
         else:
-            self.speed = 0.0015
+            self.velocity = 0.0015
 
-        if limit is not None:
-            self.limit = limit
+        if velocity_limit is not None:
+            self.velocity_limit = velocity_limit
         else:
-            self.limit = -0.016
+            self.velocity_limit = 0.01
 
-        initial_state = 0
+        if pos_limit is not None:
+            self.pos_limit = pos_limit
+        else:
+            self.pos_limit = -0.016
+
+        initial_command = -1 # Stasis value that does not effect actuator movement
         initial_position = self.park_location
-        initial_speed = self.speed
+        initial_velocity = self.velocity
 
         # Defines internal parameters to keep track of the screen position
         self.last_actuator_pos = initial_position
         self.last_actuator_time = time.time()
-        self.screen_speed = initial_speed
-        self.current_state = initial_state
-
-        initial_position = initial_position
-        initial_speed = initial_speed
-
-        # Creates flat noise for associated PVs
-        pos_noise = AbsNoise(noise=1e-6)
+        self.command_value = initial_command
+        self.pos_goal = initial_position
 
         # Registers the device's PVs with the server
-        speed_param = self.register_setting(BTF_Actuator.speed_set_pv, default=initial_speed, transform=self.milli_units)
-        self.register_readback(BTF_Actuator.speed_readback_pv, speed_param, transform=self.milli_units)
+        self.register_setting(BTF_Actuator.position_set_pv, default = initial_position, transform = self.milli_units)
+        self.register_readback(BTF_Actuator.position_sync_readback_pv, BTF_Actuator.position_set_pv, transform = self.milli_units)
+        self.register_readback(BTF_Actuator.position_enc_readback_pv, BTF_Actuator.position_set_pv, transform = self.milli_units)
 
-        pos_param = self.register_setting(BTF_Actuator.position_set_pv, default = initial_position, transform=self.milli_units)
-        self.register_readback(BTF_Actuator.position_readback_pv, pos_param, transform=self.milli_units, noise=pos_noise)
+        self.register_setting(BTF_Actuator.velocity_set_pv, default = initial_velocity, transform = self.milli_units)
 
-        state_param = self.register_setting(BTF_Actuator.state_set_pv, default = initial_state, definition={'type': 'int'})
+        self.register_setting(BTF_Actuator.command_set_pv, default = initial_command)
+        self.register_readback(BTF_Actuator.status_readback_pv, BTF_Actuator.command_set_pv)
 
-    # Function to find the position of the virtual screen using time of flight from the previous position and the speed of the screen
     def get_actuator_position(self):
+        # Initialize last position and time
         last_pos = self.last_actuator_pos
         last_time = self.last_actuator_time
 
-        current_state = self.get_parameter_value(BTF_Actuator.state_set_pv)
-        actuator_speed = self.get_parameter_value(BTF_Actuator.speed_set_pv)
+        # Update position goal if command status is changed
+        command_status = self.get_parameter_value(BTF_Actuator.command_set_pv)
 
-        # Limit the speed of the actuator to the maximum speed of physical actuator
-        if actuator_speed > self.speed:
-            actuator_speed = self.speed
+        if command_status == 1:
+            self.pos_goal = last_pos
+        elif command_status == 2:
+            self.pos_goal = self.get_parameter_value(BTF_Actuator.position_set_pv)
+        elif command_status == 3:
+            self.pos_goal = self.park_location
 
-        if current_state == 1:
-            pos_goal = self.get_parameter_value(BTF_Actuator.position_set_pv)
+        # reset command status to stasis value
+        if command_status != -1:
+            self.server_setting_override(BTF_Actuator.command_set_pv,-1)
 
-            # Defining where the actuator reaches the limit it can insert and should not be moved past
-            # Multiple cases needed to ensure it correctly determines limit
-            if self.limit < 0 and self.park_location < 0 and pos_goal > self.limit:
-                pos_goal = self.limit
-            elif self.limit < 0 and self.park_location > 0 and pos_goal < self.limit:
-                pos_goal = self.limit
-            elif self.limit > 0  and self.park_location < 0 and pos_goal > self.limit:
-                pos_goal = self.limit
-            elif self.limit > 0 and self.park_location > 0 and pos_goal < self.limit:
-                pos_goal = self.limit
+        # Adjust final position if it is outside actuator bounds
+        final_pos = self.pos_goal
+        park_loc = self.park_location
+        pos_lim = self.pos_limit
 
-            #Defining where the actuator reaches the park location and should not be extracted further
-            if self.park_location < 0 and pos_goal < self.park_location:
-                pos_goal = self.park_location
-            elif self.park_location > 0 and pos_goal > self.park_location:
-                pos_goal = self.park_location
+        if park_loc < pos_lim:
+            if final_pos > pos_lim:
+                final_pos = pos_lim
+            elif final_pos < park_loc:
+                final_pos = park_loc
+        elif park_loc > pos_lim:
+            if final_pos < pos_lim:
+                final_pos = pos_lim
+            elif final_pos > park_loc:
+                final_pos = park_loc
 
-            direction = np.sign(pos_goal - last_pos)
-            current_time = time.time()
-            actuator_pos = direction * actuator_speed * (current_time - last_time) + last_pos
+        # Update position goal to match final position
+        self.pos_goal = final_pos
 
-            if last_pos == pos_goal:
-                actuator_pos = pos_goal
-            elif direction < 0 and actuator_pos < pos_goal:
-                actuator_pos = pos_goal
-            elif direction > 0 and actuator_pos > pos_goal:
-                actuator_pos = pos_goal
+        # Limit the velocity of the actuator to the maximum velocity of the physical actuator
+        actuator_velocity = self.get_parameter_value(BTF_Actuator.velocity_set_pv)
+        vel_lim = self.velocity_limit
 
-        elif current_state == 2:
-            actuator_pos = last_pos
-            current_time = time.time()
+        if actuator_velocity > vel_lim:
+            actuator_velocity = vel_lim
+            self.set_parameter_value(BTF_Actuator.velocity_set_pv,actuator_velocity)
 
-        elif current_state == 0:
-            pos_goal = self.park_location
+        current_time = time.time()
+        current_pos = self.last_actuator_pos
+        if final_pos != last_pos:
+            direction = np.sign(final_pos - last_pos)
+            current_pos = direction * actuator_velocity * (current_time - last_time) + last_pos
 
-            direction = np.sign(pos_goal - last_pos)
-            current_time = time.time()
-            actuator_pos = direction * actuator_speed * (current_time - last_time) + last_pos
+            if direction < 0 and current_pos < final_pos:
+                current_pos = final_pos
+            elif direction > 0 and current_pos > final_pos:
+                current_pos = final_pos
 
-            if last_pos == pos_goal:
-                actuator_pos = pos_goal
-            elif direction < 0 and actuator_pos < pos_goal:
-                actuator_pos = pos_goal
-            elif direction > 0 and actuator_pos > pos_goal:
-                actuator_pos = pos_goal
-
-        else:
-            actuator_pos = last_pos
-            current_time = time.time()
-
-        # Reset variables for the next calculation
+        # reset variables for the next calculation
         self.last_actuator_time = current_time
-        self.last_actuator_pos = actuator_pos
+        self.last_actuator_pos = current_pos
 
-        return actuator_pos
+        return current_pos
 
     # Return the setting value of the PV name for the device as a dictionary using the model key and it's value.
     # This is where the setting PV names are associated with their model keys
     def get_model_optics(self) -> Dict[str, Dict[str, Any]]:
         actuator_position = self.last_actuator_pos
-        actuator_speed = self.get_parameter_value(BTF_Actuator.speed_set_pv)
-        params_dict = {BTF_Actuator.position_key: actuator_position, BTF_Actuator.speed_key: actuator_speed}
+
+        params_dict = {BTF_Actuator.position_key: actuator_position}
         model_dict = {self.model_name: params_dict}
         return model_dict
 
     # For the input setting PV (not the readback PV), updates it's associated readback on the server using the model
     def update_readbacks(self):
-        actuator_pos = BTF_Actuator.get_actuator_position(self)
-        self.update_readback(BTF_Actuator.position_readback_pv, actuator_pos)
+        actuator_position = BTF_Actuator.get_actuator_position(self)
+        self.update_readback(BTF_Actuator.position_sync_readback_pv, actuator_position)
+        self.update_readback(BTF_Actuator.position_enc_readback_pv, actuator_position)
 
-        # Readback set velocity value only when actuator is moving
-        # Note: does not work if destinationset is outside available region
-        if self.get_parameter_value(BTF_Actuator.state_set_pv) == 1 and actuator_pos != self.get_parameter_value(BTF_Actuator.position_set_pv):
-            actuator_spd = self.get_parameter_value(BTF_Actuator.speed_set_pv)
+        status_names = [1,2,3]
+
+        position_goal = self.pos_goal
+        park_position = self.park_location
+
+        if actuator_position == position_goal and actuator_position != park_position:
+            current_status = status_names[0]
+        elif actuator_position == park_position:
+            current_status = status_names[2]
         else:
-            actuator_spd = 0
-        self.update_readback(BTF_Actuator.speed_readback_pv, actuator_spd)
+            current_status = status_names[1]
 
+        self.update_readback(BTF_Actuator.status_readback_pv, current_status)
 
 class BTF_FC(Device):
     #EPICS PV names
