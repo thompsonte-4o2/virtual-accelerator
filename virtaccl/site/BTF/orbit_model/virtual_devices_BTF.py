@@ -166,7 +166,7 @@ class BTF_Actuator(Device):
         self.update_readback(BTF_Actuator.position_sync_readback_pv, actuator_position)
         self.update_readback(BTF_Actuator.position_enc_readback_pv, actuator_position)
 
-        status_names = [1,2,3]
+        status_names = [0,1,2]
 
         position_goal = self.pos_goal
         park_position = self.park_location
